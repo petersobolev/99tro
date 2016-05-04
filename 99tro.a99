@@ -1,0 +1,1004 @@
+;
+; 99TRO - CC'2016 invitation intro by Frog / ROi
+; for TI-99/4a (TMS9900 assembler). 
+; released at Revision'2016 oldskool demo compo
+; http://www.pouet.net/prod.php?which=67103
+;
+; required 32k standard RAM extension
+;
+; Use XAS99 to compile and hardware or emulator (MAME/MESS or JS99er) to run
+;
+; This is not good style of programming!
+; Please do not code like this :)
+;
+; Portions (scrolling): Matthew Hagerty
+; slightly modified and optimized.
+;
+;
+
+          def  start
+
+VADDR_MTEXT    equ  256*8-8        ; Pattern Table start address for middle text
+
+; VDP Memory Map
+
+vdprd     equ  >8800               ; VDP RAM read data
+vdpsta    equ  >8802               ; VDP RAM status
+vdpwd     equ  >8C00               ; VDP RAM write data
+vdpwa     equ  >8C02               ; VDP RAM read/write address
+vr1cpy    equ  >83D4               ; Copy of VDP register 1 - see e/a manual pg. 248
+vsync     equ  >83D7               ; Vertical Sync
+
+; Workspace
+
+ws0       equ  >8300               ; Workspace 0 (till 831f)
+;   songwp equ >8322               ; workspace s (till 8341) - defined in player src
+wsB       equ  >8342               ; Workspace 1 (till 835f)
+
+
+; Scrolling workspace direct low-byte access
+
+R0L       equ  ws0+1               ; Workspace 0 R0 low byte
+R1L       equ  ws0+3               ; Workspace 0 R1 low byte
+R2L       equ  ws0+5               ; Workspace 0 R2 low byte
+R3L       equ  ws0+7               ; Workspace 0 R3 low byte
+R4L       equ  ws0+9               ; Workspace 0 R4 low byte
+R5L       equ  ws0+11              ; Workspace 0 R5 low byte
+R6L       equ  ws0+13              ; Workspace 0 R6 low byte
+R7L       equ  ws0+15              ; Workspace 0 R7 low byte
+R8L       equ  ws0+17              ; Workspace 0 R8 low byte
+R9L       equ  ws0+19              ; Workspace 0 R9 low byte
+R10L      equ  ws0+21              ; Workspace 0 R10 low byte
+R11L      equ  ws0+23              ; Workspace 0 R11 low byte
+R12L      equ  ws0+25              ; Workspace 0 R12 low byte
+R13L      equ  ws0+27              ; Workspace 0 R13 low byte
+R14L      equ  ws0+29              ; Workspace 0 R14 low byte
+R15L      equ  ws0+31              ; Workspace 0 R15 low byte
+
+; Sprites/middle text workspace direct access
+
+Rb0       equ  wsB+0
+Rb1       equ  wsB+2
+Rb2       equ  wsB+4
+Rb3       equ  wsB+6
+Rb4       equ  wsB+8
+Rb5       equ  wsB+10
+Rb6       equ  wsB+12
+Rb7       equ  wsB+14
+Rb8       equ  wsB+16
+Rb9       equ  wsB+18
+Rb10      equ  wsB+20
+Rb11      equ  wsB+22
+Rb12      equ  wsB+24
+Rb13      equ  wsB+26
+Rb14      equ  wsB+28
+Rb15      equ  wsB+30
+
+Rb0L      equ  wsB+1
+Rb1L      equ  wsB+3
+Rb2L      equ  wsB+5
+Rb3L      equ  wsB+7
+Rb4L      equ  wsB+9
+Rb5L      equ  wsB+11
+Rb6L      equ  wsB+13
+Rb7L      equ  wsB+15
+Rb8L      equ  wsB+17
+Rb9L      equ  wsB+19
+Rb10L     equ  wsB+21
+Rb11L     equ  wsB+23
+Rb12L     equ  wsB+25
+Rb13L     equ  wsB+27
+Rb14L     equ  wsB+29
+Rb15L     equ  wsB+31
+
+; music player workspace direct access
+
+Rm0       equ  >8322
+Rm1       equ  >8322+2
+Rm2       equ  >8322+4
+Rm3       equ  >8322+6
+Rm4       equ  >8322+8
+Rm5       equ  >8322+10
+Rm6       equ  >8322+12
+Rm7       equ  >8322+14
+Rm8       equ  >8322+16
+Rm9       equ  >8322+18
+Rm10      equ  >8322+20
+Rm11      equ  >8322+22
+Rm12      equ  >8322+24
+Rm13      equ  >8322+26
+Rm14      equ  >8322+28
+Rm15      equ  >8322+30
+
+
+SPRATB    equ  >3b00     ; sprites attributes addr in VDP RAM
+SPRPTB    equ  >1800     ; sprites patterns addr in VDP RAM
+
+; Set up bitmap mode.
+
+start:
+
+; show introduction text
+
+          li   r0,>0000
+
+          ori  r0,>4000
+          swpb r0
+          movb r0,@vdpwa
+          swpb r0
+          movb r0,@vdpwa
+
+          li   r1,introtext
+          li   r2,32
+loop1:
+          movb *r1+,@vdpwd
+          dec  r2
+          jne  loop1
+
+          li   r1,7
+          bl   @delay
+
+
+          lwpi wsB                 ; workspace for middle text
+          clr  r15
+          li   r14,VADDR_MTEXT     ; pattern table start addr (+8)
+          li   r12,mtext           ; middle text
+          li   r10,55+8              ; sprite cursor Y
+          clr  r9                  ; sprite cursor X
+
+
+; START MUSIC
+
+          limi 0                   ; Disable interrupts
+
+
+          lwpi ws0               ; player expects our workspace to be >8300
+
+          clr  r2                  ; only one tune (address isn't needed for this player, only offset)
+          li   r1,musicdata
+          bl   @stinit
+
+
+; Setup GMode II (Bitmap)
+
+          li   r0,>0002            ; Set bit 6 of VDP reg 0 (Graphics II mode)
+          bl   @vwtr
+
+; bits: [4/16k] [blank] [IE] [M1] [M2] [0] [SPR.SIZE] [SPR.MAG]
+
+          li   r0,:0000000111000010            ; Reg 1: 16K,  was: >01c3
+          bl   @vwtr               ; graphics 2, size = 1, mag = 0.
+
+
+          li   r0,>020e            ; Move Screen Image Table (Name) to >3800
+          bl   @vwtr
+
+          li   r0,>03ff            ; Move Color Table to >2000
+          bl   @vwtr
+
+          li   r0,>0403            ; Pattern Descriptor Table to >0000
+          bl   @vwtr
+
+          li   r0,>0576            ; Move Sprite Attribute List to >3b00
+          bl   @vwtr
+
+          li   r0,>0603            ; Reg 6: Sprite Pattern Table  >1800
+          bl   @vwtr
+
+
+; Init Name table
+
+          li   r0,>3800            ; Screen Image Table (Name) start address
+          movb @R0L,@vdpwa         ; Send low byte of VDP RAM write address
+          ori  r0,>4000            ; Set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; Send high byte of VDP RAM write address
+
+          clr  r1                  ; Start at zero
+          li   r2,3                ; Number of times to loop 0 - 255 pattern
+init1:
+          movb r1,@vdpwd           ; Write byte to VDP RAM
+          ai   r1,>0100            ; Inc the value to write
+          jne  init1               ; Check if done writing pattern
+          dec  r2                  ; Pattern counter
+          jne  init1               ; Check if done
+
+* Clear Pattern Descriptor Table
+*
+          clr  r0                  ; Address of PDT >0000
+          clr  r1                  ; Value to write - all zero
+          li   r2,>1800            ; Number of times to write zero
+          bl   @vsmw
+
+; CLear Color Table
+
+          li   r0,>2000            ; Address of Color Table >2000
+          li   r1,>f100            ; Default color is white on gray (fgbg)
+          li   r2,>1800            ; Number of times to write zero
+          bl   @vsmw
+
+          li   r0,>0f01            ; Reg 7 (>0F): text-mode color and backdrop color (fgbg)
+          bl   @vwtr               ; Black border
+
+; ==============
+
+; load Image
+          li   r5,>0000            ; VDP Color Table start address
+          li   r1,mainlogo_patterns      ; attrs table address (fgbg)
+          li   r3,mainlogo_attrs         ; attrs table address (fgbg)
+          li   r4,32*192           ; number of blocks (8x1) to change.
+
+          bl   @PutImage
+
+          li   r1,11
+          bl   @delay
+
+
+; clear picture before middle text
+
+          li   r0,>0000+2048     ; VDP Pattern Table start address
+          li   r1,>00            ; empty
+          li   r2,2048             ; number of blocks (8x8) to change
+
+          movb @R0L,@vdpwa         ; send low byte of vdp ram write address
+          ori  r0,>4000            ; set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; send high byte of vdp ram write address
+          andi r0,>3fff            ; wait for the vdp and restore r0
+vmbwlp2:  movb r1,@vdpwd         ; write byte to vdp ram
+          dec  r2                  ; byte counter
+          jne  vmbwlp2              ; check if done
+
+
+          li   r0,>2000+2048+2048     ; VDP Color Table start address
+          li   r1,>00            ; attrs table address (fgbg)
+          li   r2,256*2             ; number of blocks (8x8) to change
+
+          movb @R0L,@vdpwa         ; send low byte of vdp ram write address
+          ori  r0,>4000            ; set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; send high byte of vdp ram write address
+          andi r0,>3fff            ; wait for the vdp and restore r0
+vmbwlp3:  movb r1,@vdpwd         ; write byte to vdp ram
+          dec  r2                  ; byte counter
+          jne  vmbwlp3              ; check if done
+
+
+
+ ; change attrs for middle text (blue tubes foreground)
+
+          li   r0,>2000+2048     ; VDP Color Table start address
+          li   r1,attrs            ; attrs table address (fgbg)
+          li   r2,32*8             ; number of blocks (8x8) to change
+
+          bl   @ChangeAttr
+
+
+; ============== sprites =======================
+
+; load sprites data
+
+          li   r0,SPRPTB            ; sprites area in VDP RAM ?
+          li   r1,SPR0            ; sprite data
+          li   r2,128+32+32               ; size of block to transfer
+          bl   @vmbw
+
+; load sprites attributes
+
+          li   r0,SPRATB            ; sprites area in VDP RAM
+          li   r1,spratt            ; sprite attrs
+          li   r2,4+4             ; size of block to transfer 4 bytes for one sprite (was:25)
+          bl   @vmbw
+
+
+; clear white scroll area
+
+          li   r0,>2000+6144-256-256     ; VDP Color Table start address
+          li   r1,colortbl_scr_mid            ; attrs table address (fgbg)
+          li   r2,32*1             ; number of blocks (8x8) to change
+
+          bl   @ChangeAttr
+
+
+
+; ============= SCROLL ========================
+
+          clr  @R3L
+
+; Start the message
+
+mstart:
+
+; scrolling use:
+; r4 - pos in text,
+
+          clr  r4                  ; Current location in message
+          clr  @head               ; head: data >0000
+          mov  @hex20,@tail        ; hex20: data >0020      tail: data >0000
+
+; Reset shift counts
+
+msgrst:
+          li   r0,1                ; Bit shift counter
+          li   r7,7                ; Inverse shift counter
+
+
+
+vdpset
+
+; Wait for the vertical refresh and set up VDP write address
+
+vwait:
+          movb @vdpsta,r2
+          andi r2,>8000
+          jeq  vwait               ; Wait for vsync
+
+
+
+          bl   @stplay             ; call play function - it returns with the wrong workspace
+
+
+* check for song end
+          movb @songwp+14,r3
+          jne  notdone2
+
+          clr  r2                  ; play again
+          li   r1,musicdata
+          bl   @stinit
+
+
+notdone2:
+          lwpi wsB                 ; restore/set new workspace --------------------------------
+
+
+
+;----- change sprites attributes for robot eyes and mouth -----------
+;
+
+
+          li   r2,SPRATB+4
+
+          movb @Rb2L,@vdpwa        ; send low byte of vdp ram write address
+          ori  r2,>4000            ; set read/write bits 14 and 15 to write
+          movb r2,@vdpwa           ; send high byte of vdp ram write address
+          andi r2,>3fff            ; wait for the vdp and restore r0
+
+          li r1,>0701
+          movb r1,@vdpwd           ; write byte to vdp ram
+
+          li r1,>8a01
+          movb r1,@vdpwd           ; write byte to vdp ram
+
+
+          li   r0,>1000            ; Name (0,4,8,c,10)
+          mov  @songwp+18,r1
+
+          ci   r1,>95b0            ; 9fbf, 93b0, 94b1, 95b2, 96b3, 9bb8, 93b0, ...
+          jgt   frame2
+          li   r0,>1400
+
+frame2:
+
+          ci   r1,>9440
+          jgt   frame3
+          li   r0,>1800
+frame3:
+
+          movb r0,@vdpwd           ; write byte to vdp ram
+
+; ------------------------------------------
+
+
+          mov  r15,r0
+          andi r0,>0007  - each 8th
+          jne  not8
+          ai   r14,8               ; inc VRAM addr for next char
+
+
+
+; print text (every 8th retrace)
+
+          mov  r14,r0
+
+          movb @Rb0L,@vdpwa         ; Send low byte of VDP RAM write address
+          ori  r0,>4000            ; Set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; Send high byte of VDP RAM write address
+
+
+          clr  r0
+          movb *r12+,r0             ; Get next char code
+          jne  noteoP
+
+; at end of middle text page:
+
+          ci   r12,mtext_end          ; looping after all middle screens shown
+          jle  noteoT
+
+; at last page of middle text
+
+          li   r12,mtext           ; reset text pointer
+
+noteoT:
+
+          li   r14,VADDR_MTEXT     ; reset pattern table start addr (new page of text)
+          li   r10,55+8              ; Y
+          li   r9,-8               ; reset cursor X to left
+noteoP:
+          sra  r0,5                ; *8 and move to LSB
+          ai   r0,chrdef2           ; get char pattern addr in R0  was: -248
+
+
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+
+not8:
+
+
+; HERE:
+; r15 - global counter, increasing by 1 every retrace
+; r14 - global counter, increasing by 8 every 8th retrace (used as Pattern Table cur address for middle text)
+; r12 - global src addr for next character in text for middle text
+; r10 - sprite Y
+; r9  - sprite X
+; use here Rb?L, NOT R0?L
+
+
+; --- begin sprites operations
+
+; 120, 30+32, 00, >0F         >783e
+; Sprite attributes: Y, X, Name, EC/Color
+
+          ci   r9,256              ; at the end of line
+          jne  do_not_inc_y
+          ai   r10,8               ; increase sprite Y by 8
+          clr  r9
+do_not_inc_y:
+
+; move sprite cursor
+
+          li   r2,SPRATB
+
+          movb @Rb2L,@vdpwa         ; send low byte of vdp ram write address
+          ori  r2,>4000            ; set read/write bits 14 and 15 to write (01)
+          movb r2,@vdpwa           ; send high byte of vdp ram write address
+          andi r2,>3fff            ; wait for the vdp and restore r0
+
+          mov  r10,r1              ; Y
+          swpb r1
+          movb r1,@vdpwd           ; write byte to vdp ram
+
+          mov  r9,r1
+          swpb r1                  ; X
+          movb r1,@vdpwd           ; write byte to vdp ram
+
+          mov  r15,r1
+
+          andi r1,>000f            ; r0 will count 0..x in loop
+
+          clr r0
+          movb  @sprframes(r1),r0  ; sprite frames for cursor
+
+
+;          li   r0,>0400            ; Name (0,4,8,c)
+          movb r0,@vdpwd           ; write byte to vdp ram
+
+
+; --- end sprites operations
+
+
+          inc  r15                 ; main counter
+          inc  r9                  ; x sprite pos
+
+          lwpi >8300               ; set default workspace ---------------------------------
+
+
+
+; здесь можно менять r1,r2
+
+
+          li   r6,>5600           ; scrolling block start address in VRAM ( >100*22 = >5600 )
+
+          movb @R6L,@vdpwa         ; Send low byte of VDP RAM write address
+          movb r6,@vdpwa           ; Send high byte of VDP RAM write address
+
+
+; Read first character into high bytes or R8-R15
+
+msg01:
+          li   r6,R8L-1            ; High byte address of R8
+
+          clr  r5
+          movb @msg(r4),r5         ; Get the character ASCII value
+          sra  r5,5                ; Mul by 8 and move to LSB (table lookup)
+          ai   r5,chrdef           ; Adjust the character into the table
+
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+          movb *r5+,*r6
+          inct r6
+
+; Read next character into low bytes of registers R8-R15
+
+msg02:
+          li   r6,R8L              ; Low byte address of R8
+          clr  r5
+          movb @msg+1(r4),r5       ; Get the character ASCII value
+          sra  r5,5                ; Mul by 8 and move to LSB (table lookup)
+          ai   r5,chrdef           ; Adjust the character into the table
+
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+          movb *r5+,*r6            ; Write to register memory
+          inct r6
+
+
+; Shift the character.  The 4 low bits of R0 are used for the count ( "0" = "R0" !).
+
+          sla  r8,r0
+          sla  r9,r0
+          sla  r10,r0
+          sla  r11,r0
+          sla  r12,r0
+          sla  r13,r0
+          sla  r14,r0
+          sla  r15,r0
+
+; Write the character to the VDP RAM.  The address is already set up.
+
+          li   r6,R8L-1            ; High byte address of R8
+
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+          movb *r6,@vdpwd          ; Write byte to VDP RAM
+          inct r6
+
+
+; Now shift the second character completly into the high byte.
+
+          mov  r7,r0
+          sla  r8,r0
+          sla  r9,r0
+          sla  r10,r0
+          sla  r11,r0
+          sla  r12,r0
+          sla  r13,r0
+          sla  r14,r0
+          sla  r15,r0
+
+; Set R0 back to original shift for current index
+
+          li   r0,8
+          s    r7,r0
+
+; Next character
+
+          inc  r4
+          c    r4,@tail
+
+          jne  msg02
+
+
+; Wrote all 32 characters, advance the shift count and do it again
+
+          mov  @head,r4
+          dec  r7
+          inc  r0
+          ci   r0,9
+          jeq  !
+          b    @vdpset
+!
+; Current character is shifted out, advance the index
+
+          inc  @head
+          inc  r4
+          inc  @tail
+          ci   r4,msgend-msg
+
+          jeq  !
+          b    @msgrst
+!
+
+          b    @mstart
+
+
+done:     jmp  done
+
+
+
+; ------------------end of main loop--------------------------
+
+
+; ----------- PrintStr -----------------------------------------
+; in:
+;  r0 - start addr (in VDP pattern table)
+;  r1 - text addr (zero-terminated)
+; out:
+;  none
+; corrupts: r0, r1, VDP write addr
+
+PrintStr:
+
+          movb @R0L,@vdpwa         ; Send low byte of VDP RAM write address
+          ori  r0,>4000            ; Set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; Send high byte of VDP RAM write address
+
+nextchar:
+          clr  r0
+          movb *r1+,r0             ; Get char code
+          jeq  eol
+          sra  r0,5                ; *8 and move to LSB
+          ai   r0,chrdef           ; get char pattern addr in R0
+
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+          movb *r0+,@vdpwd
+
+          jmp  nextchar
+eol:
+          rt
+
+; ----------- ChangeAttr -----------------------------------------
+; in:
+;  r0 - start addr (in VDP color table)
+;  r1 - attrs table address (fgbg,fgbg,...)
+;  r2 - width (number of blocks 8x8 to change)
+;  (height always 8 px)
+; out:
+;  none
+; corrupts: r0, r1, r2, VDP write addr
+
+ChangeAttr:
+; change attrs for text
+;          li   r0,>2000            ; VDP Color Table start address
+;          li   r1,attrs            ; attrs table address (fgbg)
+;          li   r2,6                ; number of blocks (8x8) to change
+
+          movb @R0L,@vdpwa         ; Send low byte of VDP RAM write address
+          ori  r0,>4000            ; Set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; Send high byte of VDP RAM write address
+
+nextcblock:
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+          movb *r1+,@vdpwd
+
+          ai   r1,-8
+          dec  r2
+          jne  nextcblock
+
+          rt
+
+
+; ------------ PutImage
+; Put data in TIAC+TIAP format (colors+patterns 256 px wide) to VDP RAM
+; in:
+;  r1 - patterns addr
+;  r3 - attrs addr
+;  r4 - number of blocks (8x1) = height px * 32
+;  r5 - target VRAM addr (starting from 0)
+; out:
+;  none
+; corrupts: r0,r1,r2,r3,r4,r5, VRAM write addr
+;
+
+PutImage:
+
+          mov  r4,r2
+
+; load patterns
+
+          mov   r5,r0
+
+          movb @R0L,@vdpwa         ; Send low byte of VDP RAM write address
+          ori  r0,>4000            ; Set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; Send high byte of VDP RAM write address
+
+nextcblock3:
+          movb *r1+,@vdpwd
+          dec  r4
+          jne  nextcblock3
+
+
+; load attrs
+          ai   r5,>2000            ; color table addr = pattern addr + >2000
+
+          movb @R5L,@vdpwa         ; Send low byte of VDP RAM write address
+          ori  r5,>4000            ; Set read/write bits 14 and 15 to write (01)
+          movb r5,@vdpwa           ; Send high byte of VDP RAM write address
+
+nextcblock2:
+          movb *r3+,@vdpwd
+          dec  r2
+          jne  nextcblock2
+
+          rt
+
+; Delay for several seconds;
+; in: r1
+; corrupts: r0,r1
+
+delay:
+          li   r0,>ffff
+delay_i:
+          dec  r0
+          jne  delay_i
+
+          dec  r1
+          jne  delay
+
+          rt
+; -------------------------------
+
+
+; VDP SUBROUTINES
+
+; >> Current workspace is used <<
+
+; General register use is:
+; R0   VDP RAM starting address.
+; R1   MSB contains the value to write or to receive a value when reading.
+;      For multipe byte reads/writes, contains the CPU buffer address.
+; R2   Counter (counts down) for multiple reads/writes.
+
+
+; WRITING VDP DATA
+
+; VDP Single Byte Write - Single Byte Multiple Write
+
+; Writes the value in the most-significant byte of R1 to the
+; VDP RAM address indicated in R0.  For VSMW, the value in R2
+; determines how many times to write the byte.  This is very
+; useful when initializing large amounts of VDP RAM for things
+; such as clearing the screen or setting up bitmap mode.
+
+vsbw:     li   r2,1                ; force the byte count to 1 for single byte write
+vsmw:     movb @R0L,@vdpwa         ; send low byte of vdp ram write address
+          ori  r0,>4000            ; set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; send high byte of vdp ram write address
+          andi r0,>3fff            ; wait for the vdp and restore r0
+vsmwlp:   movb r1,@vdpwd           ; write byte to vdp ram
+          dec  r2                  ; byte counter
+          jne  vsmwlp              ; check if done
+          rt
+
+; VDP Multiple Byte Write
+
+; Writes the number of bytes indicated in R2 from the CPU RAM
+; starting at the address indicated by R1 and places them in
+; the VDP RAM starting at the address indicated by R0.
+
+vmbw:     movb @R0L,@vdpwa         ; send low byte of vdp ram write address
+          ori  r0,>4000            ; set read/write bits 14 and 15 to write (01)
+          movb r0,@vdpwa           ; send high byte of vdp ram write address
+          andi r0,>3fff            ; wait for the vdp and restore r0
+vmbwlp:   movb *r1+,@vdpwd         ; write byte to vdp ram
+          dec  r2                  ; byte counter
+          jne  vmbwlp              ; check if done
+          rt
+
+
+
+; VDP REGISTERS
+
+
+; VDP Write To Register
+
+; Writes the value in the least-significant byte of R0 to the VDP
+; register indicated in the most-significate byte of R0.
+
+vwtr:     movb @R0L,@vdpwa         ; send low byte (value) to write to vdp register
+          ori  r0,>8000            ; set up a vdp register write operation
+          movb r0,@vdpwa           ; send high byte (address) of vdp register
+          rt
+
+
+          even
+
+
+; DATA ===============================================
+
+; attr, attr, ... (foreground+background)
+
+; 0 Transparent, 1 Black, 2 Medium Green, 3 Light Green, 4 Dark Blue, 5 Light Blue, 6 Dark Red, 7 Cyan (Aqua Blue)
+; 8 Medium Red, 9 Light Red, A Dark Yellow, B Light Yellow, C Dark Green, D Magenta (Purple), E Gray, F White
+
+colortbl_scr_mid:
+          BYTE      >1f, >1f, >1f, >1f, >1f, >1f, >1f, >1f, >1f, >1f
+
+; for middle text
+attrs:
+          BYTE >41,>41,>41,>51,>51,>51,>41,>41  ; (fgbg)
+
+
+; Characters - PC 8x8
+
+; for noter
+chrdef:
+          bcopy "chars6a.fnt"    ; standard font up+lo case, 2048 bytes 8x8
+
+; for scroll
+chrdef2:
+          copy "chars.a99"    ; font 8x8 (exported via magellan)
+
+; VRAM image data (exported via convert9918)
+mainlogo_attrs:
+           bcopy "cc.tiac"    ; color data
+mainlogo_patterns:
+           bcopy "cc.tiap"    ; pattern data
+
+; VARIABLES
+
+hex20:    data >0020
+head:     data >0000
+tail:     data >0000
+msg:      text '                                '
+
+          TEXT 'REALM OF ILLUSION IS ALIVE AND KICKING!   HERE IS FROG ON THE KEYS...   THIS IS MY FIRST PRODUCTION FOR TI-99/4A AND TMS9900 PROCESSOR (BACK TO THE 1970th!)      '
+
+          TEXT 'I''M PROUD TO PRESENT AN INVITATION INTRO FOR THE CHAOS CONSTRUCTIONS''2016 DEMOPARTY - THE BIGGEST DEMOSCENE EVENT IN RUSSIA AND EX-USSR COUNTRIES. WE RESPECT OLDSKOOL AND VINTAGE HARDWARE.     '
+
+          TEXT 'I SUPPOSE THIS INTRO IS THE FIRST DEMOSCENE PROD FOR TI-99/4a.   REALLY, I''VE FAILED TO FIND ANY IN SPITE OF THE POPULARITY OF THIS COMPUTER IN THE USA.   PERHAPS IT''S BECAUSE OF THE VERY STRANGE COMBINATION OF HARDWARE.   ANYWAY, SINCE THIS MOMENT THERE IS THE DEMOSCENE ON TI! :)     '
+
+          TEXT 'NOW SOME CREDITS AND GREETZ....     CODE/GRAPHICS:  FROG    MUSIC:  JEAN-PHILIPPE LEPAGE (JRLEPAGE)   SOUND PLAYER: TURSI   TEXT EDITING:  DRAUGVEN    COURIERS:  RANDOM, DRAUGVEN, HUN7ER     '
+
+          TEXT 'ATARIAGE.COM TI COMMUNITY FOR INFO      TNT23 AND RIDDLE FOR SUPPLYING HARDWARE    SO, ENOUGH FOR TODAY.    AND REMEMBER:  USE REAL HARDWARE FOR CAPTURING VIDEOS!    EMULATORS ARE LAME.     SEE YA                                LOOPING...    '
+
+msgend:   text '                                '
+
+
+mtext:
+          text '                                '
+          text '     We invite you to the       '
+          text '                                '
+          text '    CHAOS CONSTRUCTIONS 2016    '
+          text '                                '
+          text '     St.Petersburg, Russia      '
+          text '                                '
+          text '          27-28 August          '
+
+          byte 0  ; end of page marker
+
+          text '                                '
+          text '   Rare opportunity to take a   '
+          text '   look on the Russian scene!   '
+          text '   --------------------------   '
+          text '  Oldskool and newskool compos  '
+          text '       original fast compos     '
+          text '            --------            '
+          text '  Remote entries are accepted!  '
+
+          byte 0
+
+          text '                                '
+          text '  Vintage computers exhibition  '
+          text '  with both Soviet and Western  '
+          text '  hardware (working, of course) '
+          text '       -----------------        '
+          text '     Seminars and live sets     '
+          text '       -----------------        '
+          text '  DIY, robotics, game consoles  '
+
+          byte 0
+
+          text '                                '
+          text '     We are waiting for you     '
+          text '         and your prods!        '
+          text '   -------------------------    '
+          text '  Go chaosconstructions.ru/en   '
+          text '      for more information      '
+          text '        or contact us at        '
+          text '         info@cc.org.ru         '
+mtext_end:
+
+          byte 0
+
+introtext:
+          text '>REALM OF ILLUSION FOR REVISION<'
+          byte 0
+
+
+; Sprite names sequence for animation
+sprframes:
+          BYTE >00,>00,>00,>04,>04,>04,>08,>08,>08,>0C,>0C,>0C,>08,>08,>08,>04,>04,>04
+
+; Sprite attributes: Y, X, Name, EC/Color
+spratt:
+          BYTE 120, 30+32, 00, >0F ; sprite 0 (cursor)
+          BYTE 100, 30, 10, >0F    ; sprite 1 (robot mouth and eyes)
+          BYTE >D0                 ; stop sprites processing
+          BYTE >D0                 ; stop sprites processing
+          BYTE >D0                 ; stop sprites processing
+
+; Sprite patterns (32 bytes for 16x16 sprite)
+; 1 3
+; 2 4
+
+; Sprites for cursor
+
+SPR0      DATA >00FF,>FFFF,>FFFF,>FFFF
+          DATA >FF00,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+SPR1      DATA >0000,>7E7E,>7E7E,>7E7E
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+SPR2      DATA >0000,>003C,>3C3C,>3C00
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+SPR3      DATA >0000,>0000,>1818,>0000
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0000
+SPR4      DATA >0000,>0000,>0000,>001C
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>0038
+          DATA >0000,>0000,>0000,>0000
+SPR5      DATA >0000,>0000,>0000,>001C
+          DATA >0000,>0000,>0000,>0300
+          DATA >0000,>0000,>0000,>0038
+          DATA >0000,>0000,>0000,>C000
+SPR6      DATA >0000,>0000,>0000,>001C
+          DATA >0000,>0000,>0000,>0700
+          DATA >0000,>0000,>0000,>0000
+          DATA >0000,>0000,>0000,>E000
+
+musicdata:
+
+          bcopy  "rael_v2_spf30hz.vgm"
+
+          copy "tiplayer30hz.a99"
+
+
+          end    start                    ; End of code address
+
