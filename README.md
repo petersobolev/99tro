@@ -3,7 +3,7 @@
 22k invitation intro to Chaos Constructions'2016 for TI-99/4a<br>
 Released at Revision'2016<br>
 <p>
-![Alt text](https://raw.githubusercontent.com/petersobolev/99tro/master/screenshot_300.jpg "Screenshot")
+<img src="screenshot_300.jpg"/>
 <p>
 Platform: TI-99/4a home computer (NTSC)<br>
 Required typical config: 32K RAM expansion (using NanoPEB, for example) and Editor/Assembler cartridge to run object file.<br>
